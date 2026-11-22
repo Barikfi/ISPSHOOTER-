@@ -1,0 +1,1661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Tactical FPS Simulator - Ultra-Realistic Shooting Range</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&display=swap');
+
+        * {
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #05070a;
+            font-family: 'Rajdhani', sans-serif;
+            color: #e2e8f0;
+        }
+
+        .font-orbitron {
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        /* Tactical Crosshair Base */
+        .crosshair-line {
+            position: absolute;
+            background-color: rgba(56, 189, 248, 0.9);
+            box-shadow: 0 0 6px rgba(56, 189, 248, 0.8);
+            transition: transform 0.05s ease-out;
+        }
+
+        /* Hitmarker Animations */
+        .hitmarker-line {
+            position: absolute;
+            width: 14px;
+            height: 2px;
+            background-color: #f43f5e;
+            box-shadow: 0 0 8px #f43f5e;
+            transform-origin: center;
+        }
+
+        /* Scanline Overlay Effect */
+        .scanlines {
+            background: linear-gradient(
+                rgba(18, 16, 16, 0) 50%, 
+                rgba(0, 0, 0, 0.25) 50%
+            ), linear-gradient(
+                90deg,
+                rgba(255, 0, 0, 0.03),
+                rgba(0, 255, 0, 0.01),
+                rgba(0, 0, 255, 0.03)
+            );
+            background-size: 100% 4px, 6px 100%;
+            pointer-events: none;
+        }
+
+        /* Damage Vignette Flashes */
+        @keyframes damagePulse {
+            0% { opacity: 0.8; }
+            100% { opacity: 0; }
+        }
+        .damage-flash {
+            animation: damagePulse 0.4s ease-out forwards;
+        }
+
+        /* Glassmorphism tactical panels */
+        .tactical-card {
+            background: rgba(10, 15, 26, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.7);
+        }
+
+        .tactical-btn {
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.2), rgba(3, 105, 161, 0.4));
+            border: 1px solid rgba(56, 189, 248, 0.4);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .tactical-btn:hover {
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.5), rgba(3, 105, 161, 0.7));
+            border-color: rgba(56, 189, 248, 0.9);
+            box-shadow: 0 0 15px rgba(56, 189, 248, 0.4);
+            transform: translateY(-1px);
+        }
+        .tactical-btn:active {
+            transform: translateY(1px);
+        }
+
+        /* Custom Scrollbars */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.6);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(56, 189, 248, 0.4);
+            border-radius: 3px;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body class="select-none overflow-hidden bg-black text-slate-100">
+
+    <!-- 3D Canvas Container -->
+    <div id="canvas-container" class="absolute inset-0 w-full h-full z-0 cursor-crosshair"></div>
+
+    <!-- CRT Scanline Visual Effect Overlay -->
+    <div class="scanlines absolute inset-0 z-10 pointer-events-none"></div>
+
+    <!-- Red Damage Flash Screen Vignette -->
+    <div id="damage-vignette" class="absolute inset-0 z-20 pointer-events-none opacity-0 border-[20px] border-red-600/80 shadow-[inset_0_0_80px_rgba(220,38,38,0.8)] transition-opacity duration-150"></div>
+
+    <!-- Dynamic HUD Interface Layer -->
+    <div id="hud-layer" class="absolute inset-0 z-20 pointer-events-none flex flex-col justify-between p-4 md:p-6 hidden">
+        
+        <!-- Top HUD Header: Wave, Timer, Score, Multiplier -->
+        <div class="flex justify-between items-start w-full max-w-7xl mx-auto">
+            <!-- Game Mode & Objective -->
+            <div class="tactical-card px-4 py-2 rounded-lg flex items-center space-x-3 border-l-4 border-l-cyan-400">
+                <i class="fa-solid fa-crosshairs text-cyan-400 text-xl animate-pulse"></i>
+                <div>
+                    <div id="hud-mode-name" class="font-orbitron text-xs tracking-wider text-cyan-400 uppercase font-bold">TACTICAL DRILL</div>
+                    <div id="hud-objective" class="text-sm font-semibold text-slate-300">NEUTRALIZE ALL TARGETS</div>
+                </div>
+            </div>
+
+            <!-- Central Mission Timer & Score -->
+            <div class="flex space-x-4">
+                <div class="tactical-card px-5 py-2 rounded-lg text-center min-w-[110px]">
+                    <div class="text-[10px] tracking-widest text-slate-400 uppercase font-orbitron">TIME</div>
+                    <div id="hud-timer" class="font-orbitron text-2xl font-black text-amber-400">01:00.0</div>
+                </div>
+                <div class="tactical-card px-6 py-2 rounded-lg text-center min-w-[140px]">
+                    <div class="text-[10px] tracking-widest text-slate-400 uppercase font-orbitron">SCORE</div>
+                    <div id="hud-score" class="font-orbitron text-2xl font-black text-cyan-400">000000</div>
+                </div>
+            </div>
+
+            <!-- Health / Armor Status (Elimination Mode) -->
+            <div id="hud-health-container" class="tactical-card px-4 py-2 rounded-lg w-48 border-r-4 border-r-emerald-400">
+                <div class="flex justify-between items-center mb-1">
+                    <span class="text-xs font-orbitron font-bold text-emerald-400">PLAYER VITAL</span>
+                    <span id="hud-health-num" class="text-xs font-bold text-slate-200">100 HP</span>
+                </div>
+                <div class="w-full bg-slate-800/80 h-2 rounded-full overflow-hidden p-0.5 border border-slate-700">
+                    <div id="hud-health-bar" class="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full transition-all duration-300" style="width: 100%;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center Crosshair & Hitmarker System -->
+        <div id="crosshair-wrapper" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
+            <!-- Dynamic Spreading Crosshair Lines -->
+            <div id="ch-top" class="crosshair-line w-[2px] h-[10px] -translate-x-1/2 -translate-y-[14px]"></div>
+            <div id="ch-bottom" class="crosshair-line w-[2px] h-[10px] -translate-x-1/2 translate-y-[4px]"></div>
+            <div id="ch-left" class="crosshair-line h-[2px] w-[10px] -translate-y-1/2 -translate-x-[14px]"></div>
+            <div id="ch-right" class="crosshair-line h-[2px] w-[10px] -translate-y-1/2 translate-x-[4px]"></div>
+            <div id="ch-dot" class="absolute w-1 h-1 bg-cyan-300 rounded-full -translate-x-1/2 -translate-y-1/2 shadow-[0_0_6px_#38bdf8]"></div>
+
+            <!-- Hitmarker Animation Container -->
+            <div id="hitmarker" class="relative w-8 h-8 -translate-x-1/2 -translate-y-1/2 opacity-0 transition-opacity duration-75">
+                <div class="hitmarker-line top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rotate-45"></div>
+                <div class="hitmarker-line top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-45"></div>
+            </div>
+        </div>
+
+        <!-- Dynamic Action Feed Notification -->
+        <div id="feed-container" class="absolute left-6 top-1/3 space-y-2 max-w-xs pointer-events-none"></div>
+
+        <!-- Bottom HUD: Weapon Info, Ammo Counter, Fire Mode -->
+        <div class="flex justify-between items-end w-full max-w-7xl mx-auto">
+            <!-- Controls Quick Legend -->
+            <div class="hidden lg:flex tactical-card px-4 py-3 rounded-lg text-xs space-x-4 text-slate-400 border-b-2 border-b-cyan-500">
+                <div><span class="px-1.5 py-0.5 bg-slate-800 border border-slate-600 rounded text-cyan-300 font-mono">WASD</span> Move</div>
+                <div><span class="px-1.5 py-0.5 bg-slate-800 border border-slate-600 rounded text-cyan-300 font-mono">RMB</span> ADS</div>
+                <div><span class="px-1.5 py-0.5 bg-slate-800 border border-slate-600 rounded text-cyan-300 font-mono">R</span> Reload</div>
+                <div><span class="px-1.5 py-0.5 bg-slate-800 border border-slate-600 rounded text-cyan-300 font-mono">B</span> Fire Mode</div>
+                <div><span class="px-1.5 py-0.5 bg-slate-800 border border-slate-600 rounded text-cyan-300 font-mono">1/2</span> Switch Gun</div>
+                <div><span class="px-1.5 py-0.5 bg-slate-800 border border-slate-600 rounded text-cyan-300 font-mono">L</span> Laser Sight</div>
+            </div>
+
+            <!-- Weapon Specs & Ammo Monitor -->
+            <div class="tactical-card p-4 rounded-xl flex items-center space-x-6 border-b-4 border-b-cyan-500 ml-auto">
+                <div>
+                    <div id="hud-weapon-name" class="font-orbitron text-lg font-black tracking-wider text-slate-100 uppercase">M4A1 TACTICAL</div>
+                    <div class="flex items-center space-x-3 text-xs text-slate-400 font-orbitron mt-1">
+                        <span id="hud-firemode" class="px-2 py-0.5 bg-cyan-950/80 border border-cyan-500/40 text-cyan-400 rounded font-bold">AUTO</span>
+                        <span id="hud-caliber" class="tracking-widest">5.56x45mm NATO</span>
+                    </div>
+                </div>
+
+                <div class="h-10 w-[1px] bg-slate-700"></div>
+
+                <!-- Ammo Count Display -->
+                <div class="flex items-baseline space-x-1">
+                    <span id="hud-ammo-clip" class="font-orbitron text-4xl font-black text-cyan-400 tracking-tight">30</span>
+                    <span class="text-xl text-slate-500 font-bold">/</span>
+                    <span id="hud-ammo-reserve" class="font-orbitron text-xl font-bold text-slate-400">120</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mobile Touch Controls Overlay (Auto-detected) -->
+    <div id="touch-overlay" class="absolute inset-0 z-30 pointer-events-none hidden">
+        <!-- Virtual Joystick Area (Left side) -->
+        <div id="joystick-zone" class="absolute bottom-8 left-8 w-36 h-36 bg-slate-900/40 border-2 border-cyan-500/30 rounded-full pointer-events-auto flex items-center justify-center">
+            <div id="joystick-knob" class="w-14 h-14 bg-cyan-500/50 border border-cyan-300 rounded-full"></div>
+        </div>
+
+        <!-- Action Buttons (Right side) -->
+        <div class="absolute bottom-8 right-8 flex flex-col space-y-3 pointer-events-auto">
+            <div class="flex space-x-3">
+                <button id="btn-touch-ads" class="w-16 h-16 rounded-full bg-slate-900/80 border border-cyan-400 text-cyan-300 font-bold text-xs active:scale-95">ADS</button>
+                <button id="btn-touch-reload" class="w-16 h-16 rounded-full bg-slate-900/80 border border-amber-400 text-amber-300 font-bold text-xs active:scale-95"><i class="fa-solid fa-rotate-right text-lg"></i></button>
+            </div>
+            <button id="btn-touch-fire" class="w-32 h-20 rounded-2xl bg-red-600/60 border-2 border-red-400 text-white font-orbitron font-black text-lg active:scale-95 shadow-[0_0_20px_rgba(225,29,72,0.5)]">FIRE</button>
+        </div>
+    </div>
+
+    <!-- Main Menu Modal Overlay -->
+    <div id="menu-overlay" class="absolute inset-0 z-40 flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4">
+        <div class="tactical-card w-full max-w-3xl rounded-2xl p-6 md:p-8 space-y-6 border border-cyan-500/30 relative overflow-hidden">
+            <!-- Tactical Header -->
+            <div class="flex justify-between items-start border-b border-slate-800 pb-4">
+                <div>
+                    <h1 class="font-orbitron text-2xl md:text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-teal-300 to-amber-400 tracking-wider">
+                        TACTICAL STRIKE 3D
+                    </h1>
+                    <p class="text-xs md:text-sm text-slate-400 font-medium mt-1">High-Precision Ballistic Combat Simulation Engine</p>
+                </div>
+                <div class="hidden sm:block text-right font-mono text-xs text-cyan-500/70">
+                    <div>BUILD v2.4.9</div>
+                    <div>WEBGL 2.0 / WEB AUDIO</div>
+                </div>
+            </div>
+
+            <!-- Mode Selector Grid -->
+            <div>
+                <label class="block text-xs font-orbitron font-bold text-cyan-400 uppercase tracking-widest mb-3">SELECT OPERATIONAL MODE</label>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- Precision Range Mode -->
+                    <div id="mode-card-range" onclick="selectMode('range')" class="tactical-card p-4 rounded-xl cursor-pointer border-2 border-cyan-500/80 bg-cyan-950/20 hover:bg-cyan-900/30 transition-all">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="font-orbitron font-bold text-slate-100"><i class="fa-solid fa-bullseye text-cyan-400 mr-2"></i>PRECISION RANGE</span>
+                            <span class="text-[10px] px-2 py-0.5 bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 rounded font-mono">TIMED DRILL</span>
+                        </div>
+                        <p class="text-xs text-slate-400">Engage static and sliding IPSC silhouette targets at 15m, 30m, and 50m distances. Test speed, accuracy, and headshots.</p>
+                    </div>
+
+                    <!-- Tactical Elimination Mode -->
+                    <div id="mode-card-survival" onclick="selectMode('survival')" class="tactical-card p-4 rounded-xl cursor-pointer border-2 border-slate-700/60 bg-slate-900/40 hover:bg-slate-800/50 transition-all">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="font-orbitron font-bold text-slate-100"><i class="fa-solid fa-shield-halved text-amber-400 mr-2"></i>TACTICAL ELIMINATION</span>
+                            <span class="text-[10px] px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded font-mono">CQB SURVIVAL</span>
+                        </div>
+                        <p class="text-xs text-slate-400">Neutralize advancing hostile combat mannequins popping out from cover down an urban warehouse corridor. Survive waves.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Audio & Settings Adjustments -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-900/50 p-4 rounded-xl border border-slate-800">
+                <div>
+                    <div class="flex justify-between text-xs font-orbitron font-semibold text-slate-300 mb-1">
+                        <span>MOUSE SENSITIVITY</span>
+                        <span id="sens-val" class="text-cyan-400">1.5</span>
+                    </div>
+                    <input id="sens-slider" type="range" min="0.5" max="4.0" step="0.1" value="1.5" class="w-full accent-cyan-400 cursor-pointer">
+                </div>
+                <div>
+                    <div class="flex justify-between text-xs font-orbitron font-semibold text-slate-300 mb-1">
+                        <span>AUDIO VOLUME</span>
+                        <span id="vol-val" class="text-cyan-400">80%</span>
+                    </div>
+                    <input id="vol-slider" type="range" min="0" max="100" step="5" value="80" class="w-full accent-cyan-400 cursor-pointer">
+                </div>
+            </div>
+
+            <!-- Start Mission Button -->
+            <button id="btn-start-game" class="w-full py-4 rounded-xl font-orbitron font-black text-lg tracking-widest text-white tactical-btn flex items-center justify-center space-x-3 shadow-lg">
+                <i class="fa-solid fa-play text-cyan-400"></i>
+                <span>DEPLOY TO RANGE</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Post-Match Tactical Debrief Modal -->
+    <div id="debrief-overlay" class="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/95 backdrop-blur-lg p-4 hidden">
+        <div class="tactical-card w-full max-w-2xl rounded-2xl p-6 md:p-8 space-y-6 border border-cyan-500/40 relative">
+            <div class="text-center border-b border-slate-800 pb-4">
+                <div id="debrief-subtitle" class="text-xs font-orbitron font-bold text-amber-400 tracking-widest uppercase">MISSION COMPLETE</div>
+                <h2 id="debrief-title" class="font-orbitron text-2xl md:text-3xl font-black text-slate-100 mt-1">TACTICAL PERFORMANCE DEBRIEF</h2>
+            </div>
+
+            <!-- Performance Metrics Grid -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                <div class="tactical-card p-3 rounded-xl">
+                    <div class="text-[10px] font-orbitron text-slate-400">FINAL SCORE</div>
+                    <div id="debrief-score" class="font-orbitron text-2xl font-black text-cyan-400">0</div>
+                </div>
+                <div class="tactical-card p-3 rounded-xl">
+                    <div class="text-[10px] font-orbitron text-slate-400">ACCURACY</div>
+                    <div id="debrief-accuracy" class="font-orbitron text-2xl font-black text-amber-400">0%</div>
+                </div>
+                <div class="tactical-card p-3 rounded-xl">
+                    <div class="text-[10px] font-orbitron text-slate-400">HEADSHOTS</div>
+                    <div id="debrief-headshots" class="font-orbitron text-2xl font-black text-rose-400">0</div>
+                </div>
+                <div class="tactical-card p-3 rounded-xl">
+                    <div class="text-[10px] font-orbitron text-slate-400">BEST STREAK</div>
+                    <div id="debrief-streak" class="font-orbitron text-2xl font-black text-emerald-400">0</div>
+                </div>
+            </div>
+
+            <div class="space-y-2 text-xs font-mono text-slate-300 bg-slate-900/60 p-4 rounded-xl border border-slate-800">
+                <div class="flex justify-between"><span>TOTAL ROUNDS FIRED:</span><span id="debrief-shots" class="text-cyan-400">0</span></div>
+                <div class="flex justify-between"><span>CONFIRMED HITS:</span><span id="debrief-hits" class="text-cyan-400">0</span></div>
+                <div class="flex justify-between"><span>TARGETS NEUTRALIZED:</span><span id="debrief-kills" class="text-cyan-400">0</span></div>
+                <div class="flex justify-between"><span>MISSION RANK:</span><span id="debrief-rank" class="text-amber-400 font-bold">S+</span></div>
+            </div>
+
+            <div class="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4">
+                <button id="btn-restart-game" class="flex-1 py-3.5 rounded-xl font-orbitron font-bold text-sm tracking-wider text-white tactical-btn flex items-center justify-center space-x-2">
+                    <i class="fa-solid fa-rotate-left"></i>
+                    <span>REPLAY / NEW GAME</span>
+                </button>
+                <button id="btn-menu-game" class="px-6 py-3.5 rounded-xl font-orbitron font-bold text-sm tracking-wider bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 transition">
+                    MAIN MENU
+                </button>
+            </div>
+            <div class="text-center text-[10px] font-mono text-slate-500 tracking-wider uppercase">
+                PRESS <span class="text-cyan-400 font-bold">SPACE</span> / <span class="text-cyan-400 font-bold">ENTER</span> / <span class="text-cyan-400 font-bold">R</span> TO RE-DEPLOY IMMEDIATELY
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN GAME SIMULATOR LOGIC & PROCEDURAL SYNTHESIS ENGINE -->
+    <script>
+        /* =========================================================================
+           1. PROCEDURAL WEB AUDIO SYNTHESIZER ENGINE
+           Synthesizes layered realistic weapon acoustics, shell casings, and hit sounds
+           ========================================================================= */
+        class SoundEngine {
+            constructor() {
+                this.ctx = null;
+                this.masterVolume = 0.8;
+                this.initialized = false;
+            }
+
+            init() {
+                if (this.initialized) return;
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                this.ctx = new AudioCtx();
+                this.initialized = true;
+            }
+
+            setVolume(val) {
+                this.masterVolume = val;
+            }
+
+            // Synthesize layered high-powered gunshot (Sub-bass thump + Sharp noise crack + Metallic tail)
+            playGunshot(isRifle = true) {
+                if (!this.initialized || !this.ctx) return;
+                const now = this.ctx.currentTime;
+
+                // Master gain node for shot
+                const shotGain = this.ctx.createGain();
+                shotGain.gain.setValueAtTime(this.masterVolume, now);
+                shotGain.connect(this.ctx.destination);
+
+                // Layer 1: Low-frequency sub thump (Oscillator pitch sweep)
+                const subOsc = this.ctx.createOscillator();
+                const subGain = this.ctx.createGain();
+                subOsc.type = 'sine';
+                const startFreq = isRifle ? 180 : 220;
+                subOsc.frequency.setValueAtTime(startFreq, now);
+                subOsc.frequency.exponentialRampToValueAtTime(30, now + 0.15);
+
+                subGain.gain.setValueAtTime(1.0, now);
+                subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+
+                subOsc.connect(subGain);
+                subGain.connect(shotGain);
+                subOsc.start(now);
+                subOsc.stop(now + 0.2);
+
+                // Layer 2: Sharp explosion noise burst (Gunpowder snap)
+                const bufferSize = this.ctx.sampleRate * 0.2;
+                const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+                const output = noiseBuffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    output[i] = Math.random() * 2 - 1;
+                }
+
+                const noise = this.ctx.createBufferSource();
+                noise.buffer = noiseBuffer;
+
+                const filter = this.ctx.createBiquadFilter();
+                filter.type = isRifle ? 'bandpass' : 'lowpass';
+                filter.frequency.setValueAtTime(isRifle ? 2400 : 1800, now);
+                filter.Q.setValueAtTime(1.2, now);
+
+                const noiseGain = this.ctx.createGain();
+                noiseGain.gain.setValueAtTime(1.2, now);
+                noiseGain.gain.exponentialRampToValueAtTime(0.001, now + (isRifle ? 0.22 : 0.16));
+
+                noise.connect(filter);
+                filter.connect(noiseGain);
+                noiseGain.connect(shotGain);
+                noise.start(now);
+
+                // Layer 3: Metallic mechanical action bolt click
+                const boltOsc = this.ctx.createOscillator();
+                const boltGain = this.ctx.createGain();
+                boltOsc.type = 'triangle';
+                boltOsc.frequency.setValueAtTime(800, now);
+                boltOsc.frequency.exponentialRampToValueAtTime(200, now + 0.05);
+                boltGain.gain.setValueAtTime(0.4, now);
+                boltGain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+
+                boltOsc.connect(boltGain);
+                boltGain.connect(shotGain);
+                boltOsc.start(now);
+                boltOsc.stop(now + 0.06);
+            }
+
+            // Synthesize brass casing tink on ground
+            playCasingSound() {
+                if (!this.initialized || !this.ctx) return;
+                const now = this.ctx.currentTime + 0.1 + Math.random() * 0.05;
+
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sine';
+                const freq = 3500 + Math.random() * 1000;
+                osc.frequency.setValueAtTime(freq, now);
+                osc.frequency.exponentialRampToValueAtTime(freq * 0.7, now + 0.04);
+
+                gain.gain.setValueAtTime(0.15 * this.masterVolume, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.05);
+            }
+
+            // Synthesize Hitmarker sound (Headshot ping vs Body thud)
+            playHitmarkerSound(isHeadshot = false) {
+                if (!this.initialized || !this.ctx) return;
+                const now = this.ctx.currentTime;
+
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                if (isHeadshot) {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(2400, now);
+                    osc.frequency.setValueAtTime(3200, now + 0.03);
+                    gain.gain.setValueAtTime(0.5 * this.masterVolume, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+                } else {
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(800, now);
+                    osc.frequency.exponentialRampToValueAtTime(200, now + 0.06);
+                    gain.gain.setValueAtTime(0.4 * this.masterVolume, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.07);
+                }
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.13);
+            }
+
+            // Synthesize Mechanical Reloading sound sequence
+            playReloadSound() {
+                if (!this.initialized || !this.ctx) return;
+                const now = this.ctx.currentTime;
+
+                // Mag Eject
+                this.playClick(now, 600, 0.08);
+                // Mag Insert
+                this.playClick(now + 0.9, 850, 0.1);
+                // Charging Handle / Bolt Release
+                this.playClick(now + 1.4, 1200, 0.12);
+            }
+
+            playDryFire() {
+                if (!this.initialized || !this.ctx) return;
+                this.playClick(this.ctx.currentTime, 1400, 0.04);
+            }
+
+            // Synthesize Out of Ammo / Game Over Tactical Siren Tone
+            playOutOfAmmoAlert() {
+                if (!this.initialized || !this.ctx) return;
+                const now = this.ctx.currentTime;
+                
+                const osc1 = this.ctx.createOscillator();
+                const osc2 = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc1.type = 'sawtooth';
+                osc2.type = 'square';
+                osc1.frequency.setValueAtTime(320, now);
+                osc1.frequency.setValueAtTime(160, now + 0.18);
+                osc2.frequency.setValueAtTime(280, now);
+                osc2.frequency.setValueAtTime(140, now + 0.18);
+
+                gain.gain.setValueAtTime(0.4 * this.masterVolume, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+
+                osc1.connect(gain);
+                osc2.connect(gain);
+                gain.connect(this.ctx.destination);
+
+                osc1.start(now);
+                osc2.start(now);
+                osc1.stop(now + 0.45);
+                osc2.stop(now + 0.45);
+            }
+
+            playClick(time, freq, duration) {
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(freq, time);
+                osc.frequency.exponentialRampToValueAtTime(100, time + duration);
+
+                gain.gain.setValueAtTime(0.25 * this.masterVolume, time);
+                gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(time);
+                osc.stop(time + duration + 0.01);
+            }
+        }
+
+        const soundEngine = new SoundEngine();
+
+        /* =========================================================================
+           2. GAME CONFIGURATION & GLOBALS
+           ========================================================================= */
+        const CONFIG = {
+            rifle: {
+                name: 'M4A1 TACTICAL',
+                damage: 35,
+                fireRate: 0.1, // Seconds per shot (600 RPM)
+                clipSize: 30,
+                maxReserve: 60, // Finite total pool: 30 clip + 60 reserve = 90 total rounds
+                recoilKick: 0.06,
+                recoilPitch: 0.045,
+                recoilYaw: 0.012,
+                spreadHip: 0.035,
+                spreadADS: 0.002,
+                adsPos: new THREE.Vector3(0, -0.162, -0.32),
+                hipPos: new THREE.Vector3(0.22, -0.22, -0.45)
+            },
+            pistol: {
+                name: 'DESERT EAGLE .50',
+                damage: 75,
+                fireRate: 0.25,
+                clipSize: 7,
+                maxReserve: 21, // Finite total pool: 7 clip + 21 reserve = 28 total rounds
+                recoilKick: 0.12,
+                recoilPitch: 0.12,
+                recoilYaw: 0.025,
+                spreadHip: 0.045,
+                spreadADS: 0.005,
+                adsPos: new THREE.Vector3(0, -0.145, -0.28),
+                hipPos: new THREE.Vector3(0.18, -0.20, -0.40)
+            }
+        };
+
+        let activeMode = 'range'; // 'range' or 'survival'
+        let gameActive = false;
+        let isGameOverPending = false;
+        let mouseSensitivity = 0.0022;
+
+        /* =========================================================================
+           3. THREE.JS SCENE SETUP & ENGINE CORE
+           ========================================================================= */
+        let scene, camera, renderer;
+        let playerGroup, weaponHolderGroup;
+        let currentWeaponMesh = null;
+        let currentWeaponType = 'rifle'; // 'rifle' or 'pistol'
+
+        // Weapon States
+        let isADS = false;
+        let isFiring = false;
+        let isReloading = false;
+        let autoFireMode = true; // Auto vs Semi
+        let laserEnabled = true;
+
+        let ammoClip = 30;
+        let ammoReserve = 60;
+        let lastShotTime = 0;
+
+        // Recoil & Sway Springs
+        let recoilOffsetZ = 0;
+        let recoilRotX = 0;
+        let recoilRotY = 0;
+        let weaponSwayX = 0;
+        let weaponSwayY = 0;
+        let walkBobTimer = 0;
+
+        // Dynamic Laser Sight
+        let laserLine = null;
+
+        // Gameplay Tracking
+        let score = 0;
+        let totalShotsFired = 0;
+        let totalHits = 0;
+        let headshotsCount = 0;
+        let killsCount = 0;
+        let currentStreak = 0;
+        let bestStreak = 0;
+        let matchTimer = 60.0;
+        let playerHealth = 100;
+
+        // Target & Particle Management Arrays
+        let targets = [];
+        let particles = [];
+        let tracers = [];
+
+        // Pointer Lock & Movement
+        const keys = {};
+        let cameraPitch = 0;
+        let cameraYaw = 0;
+
+        function initThreeScene() {
+            const container = document.getElementById('canvas-container');
+            
+            // Scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x060911);
+            scene.fog = new THREE.FogExp2(0x060911, 0.018);
+
+            // Camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.05, 1000);
+            
+            // Player Rig
+            playerGroup = new THREE.Group();
+            playerGroup.position.set(0, 1.7, 0);
+            playerGroup.add(camera);
+            scene.add(playerGroup);
+
+            // Weapon Holder Attached to Camera
+            weaponHolderGroup = new THREE.Group();
+            weaponHolderGroup.position.copy(CONFIG.rifle.hipPos);
+            camera.add(weaponHolderGroup);
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.1;
+            container.appendChild(renderer.domElement);
+
+            // Build Environment & Lighting
+            setupTacticalEnvironment();
+
+            // Build Weapons 3D Procedural Models
+            buildWeapons();
+
+            // Setup Window Resize Event
+            window.addEventListener('resize', onWindowResize, false);
+        }
+
+        /* =========================================================================
+           4. ENVIRONMENT & ARCHITECTURE GENERATION
+           Tactical Urban/Industrial Combat Range Scene
+           ========================================================================= */
+        function setupTacticalEnvironment() {
+            // Ambient Light
+            const ambient = new THREE.AmbientLight(0x38bdf8, 0.35);
+            scene.add(ambient);
+
+            // Main Overhead Floodlight
+            const mainSpot = new THREE.SpotLight(0xfff5ea, 1.8, 100, Math.PI / 3, 0.5, 1);
+            mainSpot.position.set(0, 20, 5);
+            mainSpot.castShadow = true;
+            mainSpot.shadow.mapSize.width = 2048;
+            mainSpot.shadow.mapSize.height = 2048;
+            scene.add(mainSpot);
+
+            // Atmospheric Accent Lights (Amber & Cyan tactical glow)
+            const cyanLight = new THREE.PointLight(0x06b6d4, 1.5, 30);
+            cyanLight.position.set(-10, 4, -20);
+            scene.add(cyanLight);
+
+            const amberLight = new THREE.PointLight(0xf59e0b, 1.5, 30);
+            amberLight.position.set(10, 4, -35);
+            scene.add(amberLight);
+
+            // Concrete Floor Texture/Material
+            const floorGeo = new THREE.PlaneGeometry(60, 120);
+            const floorMat = new THREE.MeshStandardMaterial({
+                color: 0x1e293b,
+                roughness: 0.7,
+                metalness: 0.2
+            });
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            floor.position.z = -40;
+            floor.receiveShadow = true;
+            scene.add(floor);
+
+            // Tactical Shooting Range Distances Markings (15m, 30m, 50m lines)
+            const lineMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, opacity: 0.5, transparent: true });
+            [ -15, -30, -50 ].forEach((distZ, idx) => {
+                const lineGeo = new THREE.PlaneGeometry(24, 0.3);
+                const line = new THREE.Mesh(lineGeo, lineMat);
+                line.rotation.x = -Math.PI / 2;
+                line.position.set(0, 0.01, distZ);
+                scene.add(line);
+            });
+
+            // Concrete Side Walls
+            const wallMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9, metalness: 0.1 });
+            const leftWall = new THREE.Mesh(new THREE.BoxGeometry(1, 12, 120), wallMat);
+            leftWall.position.set(-15, 6, -40);
+            leftWall.receiveShadow = true;
+            scene.add(leftWall);
+
+            const rightWall = new THREE.Mesh(new THREE.BoxGeometry(1, 12, 120), wallMat);
+            rightWall.position.set(15, 6, -40);
+            rightWall.receiveShadow = true;
+            scene.add(rightWall);
+
+            // Back Stop Wall
+            const backWall = new THREE.Mesh(new THREE.BoxGeometry(31, 12, 1), wallMat);
+            backWall.position.set(0, 6, -100);
+            scene.add(backWall);
+
+            // Concrete Barriers & Cover Blocks
+            const barrierMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.8 });
+            const barrierPositions = [
+                [-6, 1, -12], [6, 1, -18], [-8, 1, -28], [5, 1, -38], [0, 1, -48]
+            ];
+            barrierPositions.forEach(pos => {
+                const crate = new THREE.Mesh(new THREE.BoxGeometry(3, 2, 1.2), barrierMat);
+                crate.position.set(pos[0], pos[1], pos[2]);
+                crate.castShadow = true;
+                crate.receiveShadow = true;
+                scene.add(crate);
+            });
+        }
+
+        /* =========================================================================
+           5. PROCEDURAL 3D WEAPON GENERATION (M4A1 & DESERT EAGLE)
+           ========================================================================= */
+        function buildWeapons() {
+            // --- 1. M4A1 RIFLE MESH ---
+            const rifleGroup = new THREE.Group();
+            rifleGroup.name = 'rifle';
+
+            const darkMetal = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.85, roughness: 0.25 });
+            const blackPoly = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.6 });
+            const lensMat = new THREE.MeshPhysicalMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.4, transmission: 0.9, roughness: 0.1 });
+
+            // Receiver Body
+            const body = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.08, 0.35), darkMetal);
+            rifleGroup.add(body);
+
+            // Handguard Rail
+            const handguard = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.065, 0.3), blackPoly);
+            handguard.position.set(0, 0.01, -0.3);
+            rifleGroup.add(handguard);
+
+            // Barrel & Flash Hider
+            const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.35, 16), darkMetal);
+            barrel.rotation.x = Math.PI / 2;
+            barrel.position.set(0, 0.01, -0.55);
+            rifleGroup.add(barrel);
+
+            // Curved Magazine
+            const mag = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.2, 0.08), darkMetal);
+            mag.position.set(0, -0.12, -0.05);
+            mag.rotation.x = 0.2;
+            rifleGroup.add(mag);
+
+            // Stock
+            const stock = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.1, 0.25), blackPoly);
+            stock.position.set(0, -0.02, 0.28);
+            rifleGroup.add(stock);
+
+            // Holographic Sight Frame & Glass Reticle
+            const sightBase = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.1), darkMetal);
+            sightBase.position.set(0, 0.065, -0.05);
+            rifleGroup.add(sightBase);
+
+            const sightGlass = new THREE.Mesh(new THREE.PlaneGeometry(0.04, 0.04), lensMat);
+            sightGlass.position.set(0, 0.075, -0.06);
+            rifleGroup.add(sightGlass);
+
+            // Reticle Glowing Dot inside Sight
+            const reticleGeo = new THREE.RingGeometry(0.002, 0.006, 16);
+            const reticleMat = new THREE.MeshBasicMaterial({ color: 0xf43f5e, side: THREE.DoubleSide });
+            const reticle = new THREE.Mesh(reticleGeo, reticleMat);
+            reticle.position.set(0, 0.075, -0.058);
+            rifleGroup.add(reticle);
+
+            // Laser Sight Emitter Tube & Laser Beam
+            const laserBox = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.025, 0.08), darkMetal);
+            laserBox.position.set(0.04, 0.01, -0.32);
+            rifleGroup.add(laserBox);
+
+            const laserGeo = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(0.04, 0.01, -0.36),
+                new THREE.Vector3(0.04, 0.01, -100)
+            ]);
+            const laserMat = new THREE.LineBasicMaterial({ color: 0xef4444, linewidth: 2, transparent: true, opacity: 0.7 });
+            laserLine = new THREE.Line(laserGeo, laserMat);
+            rifleGroup.add(laserLine);
+
+            // --- 2. DESERT EAGLE PISTOL MESH ---
+            const pistolGroup = new THREE.Group();
+            pistolGroup.name = 'pistol';
+
+            const silverMetal = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.95, roughness: 0.15 });
+
+            // Pistol Grip
+            const pGrip = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.14, 0.07), blackPoly);
+            pGrip.position.set(0, -0.07, 0.02);
+            pGrip.rotation.x = -0.2;
+            pistolGroup.add(pGrip);
+
+            // Slide
+            const pSlide = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.06, 0.26), silverMetal);
+            pSlide.position.set(0, 0.03, -0.05);
+            pistolGroup.add(pSlide);
+
+            // Barrel tip
+            const pBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.1, 16), silverMetal);
+            pBarrel.rotation.x = Math.PI / 2;
+            pBarrel.position.set(0, 0.03, -0.2);
+            pistolGroup.add(pBarrel);
+
+            // Iron Sights
+            const rearSight = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.015, 0.01), darkMetal);
+            rearSight.position.set(0, 0.065, 0.06);
+            pistolGroup.add(rearSight);
+
+            const frontSight = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.015, 0.01), darkMetal);
+            frontSight.position.set(0, 0.065, -0.17);
+            pistolGroup.add(frontSight);
+
+            // Hide Pistol initially
+            pistolGroup.visible = false;
+
+            weaponHolderGroup.add(rifleGroup);
+            weaponHolderGroup.add(pistolGroup);
+            currentWeaponMesh = rifleGroup;
+        }
+
+        /* =========================================================================
+           6. TARGET GENERATION & SPAWN SYSTEM
+           Pop-up steel IPSC silhouettes and moving CQB drones
+           ========================================================================= */
+        function spawnTarget(distanceZ, posX, isMoving = false, isHostile = false) {
+            const targetGroup = new THREE.Group();
+            targetGroup.position.set(posX, 0, distanceZ);
+
+            // Base stand
+            const baseGeo = new THREE.BoxGeometry(1.2, 0.2, 1.2);
+            const baseMat = new THREE.MeshStandardMaterial({ color: 0x334155 });
+            const base = new THREE.Mesh(baseGeo, baseMat);
+            base.position.y = 0.1;
+            targetGroup.add(base);
+
+            // Target Steel Silhouette Body
+            const bodyGeo = new THREE.BoxGeometry(0.5, 0.9, 0.05);
+            const bodyMat = new THREE.MeshStandardMaterial({ color: isHostile ? 0xd97706 : 0x0284c7, metalness: 0.5, roughness: 0.3 });
+            const body = new THREE.Mesh(bodyGeo, bodyMat);
+            body.position.y = 1.15;
+            body.userData = { type: 'body', parentGroup: targetGroup };
+            targetGroup.add(body);
+
+            // Head Hitbox Target (Yellow circle)
+            const headGeo = new THREE.SphereGeometry(0.14, 16, 16);
+            const headMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, metalness: 0.4 });
+            const head = new THREE.Mesh(headGeo, headMat);
+            head.position.y = 1.75;
+            head.userData = { type: 'head', parentGroup: targetGroup };
+            targetGroup.add(head);
+
+            // Red Bullseye Center Badge
+            const bullseyeGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.06, 16);
+            const bullseyeMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+            const bullseye = new THREE.Mesh(bullseyeGeo, bullseyeMat);
+            bullseye.rotation.x = Math.PI / 2;
+            bullseye.position.set(0, 1.15, 0.01);
+            targetGroup.add(bullseye);
+
+            // Target Motion Metadata
+            targetGroup.userData = {
+                id: Math.random(),
+                hp: 100,
+                isMoving: isMoving,
+                moveSpeed: 1.5 + Math.random() * 2.0,
+                moveDir: 1,
+                minX: posX - 4,
+                maxX: posX + 4,
+                isHostile: isHostile,
+                shootTimer: Math.random() * 3.0,
+                bodyMesh: body,
+                headMesh: head
+            };
+
+            scene.add(targetGroup);
+            targets.push(targetGroup);
+        }
+
+        function populateRangeTargets() {
+            // Clear existing targets
+            targets.forEach(t => scene.remove(t));
+            targets = [];
+
+            if (activeMode === 'range') {
+                // 15m Lane (2 Static, 1 Moving)
+                spawnTarget(-15, -4, false);
+                spawnTarget(-15, 4, false);
+                spawnTarget(-15, 0, true);
+
+                // 30m Lane
+                spawnTarget(-30, -6, false);
+                spawnTarget(-30, 6, true);
+
+                // 50m Lane (Precision distance)
+                spawnTarget(-50, -2, true);
+                spawnTarget(-50, 3, false);
+            } else {
+                // Tactical Elimination Mode (Hostile pop-ups behind barriers)
+                spawnTarget(-12, -6, false, true);
+                spawnTarget(-18, 6, true, true);
+                spawnTarget(-28, -8, false, true);
+                spawnTarget(-38, 5, true, true);
+            }
+        }
+
+        /* =========================================================================
+           7. BALLISTICS, FIRING & PARTICLE PHYSICS
+           ========================================================================= */
+        function fireWeapon() {
+            if (!gameActive || isReloading || isGameOverPending) return;
+
+            const now = performance.now() / 1000;
+            const cfg = CONFIG[currentWeaponType];
+
+            if (now - lastShotTime < cfg.fireRate) return;
+
+            // Out of Ammo Handling
+            if (ammoClip <= 0) {
+                if (ammoReserve > 0) {
+                    triggerReload();
+                } else {
+                    soundEngine.playDryFire();
+                    lastShotTime = now;
+                    showActionFeed('NO AMMO REMAINING!', 'text-red-500');
+                    endGameMission('OUT OF AMMO');
+                }
+                return;
+            }
+
+            // Deduct Ammo & Sound
+            ammoClip--;
+            lastShotTime = now;
+            updateHUDAmmo();
+
+            soundEngine.playGunshot(currentWeaponType === 'rifle');
+            soundEngine.playCasingSound();
+            totalShotsFired++;
+
+            // Recoil Kickback & Camera Punch
+            recoilOffsetZ += cfg.recoilKick;
+            recoilRotX += cfg.recoilPitch;
+            recoilRotY += (Math.random() - 0.5) * cfg.recoilYaw;
+
+            // Apply Bullet Spread (Larger in Hipfire, Tight in ADS)
+            const spreadVal = isADS ? cfg.spreadADS : cfg.spreadHip;
+            const raycaster = new THREE.Raycaster();
+            const spreadVector = new THREE.Vector3(
+                (Math.random() - 0.5) * spreadVal,
+                (Math.random() - 0.5) * spreadVal,
+                -1
+            ).unproject(camera);
+
+            const rayDir = spreadVector.sub(camera.position).normalize();
+            raycaster.set(camera.position, rayDir);
+
+            // Muzzle Flash Point Light
+            spawnMuzzleFlash();
+
+            // Raycast Hit Detection against Targets
+            const interactableMeshes = [];
+            targets.forEach(t => {
+                interactableMeshes.push(t.userData.bodyMesh, t.userData.headMesh);
+            });
+
+            const intersects = raycaster.intersectObjects(interactableMeshes);
+
+            if (intersects.length > 0) {
+                const hit = intersects[0];
+                const targetObj = hit.object.userData.parentGroup;
+                const isHead = hit.object.userData.type === 'head';
+
+                // Hit Calculations
+                totalHits++;
+                currentStreak++;
+                if (currentStreak > bestStreak) bestStreak = currentStreak;
+
+                const dmgMultiplier = isHead ? 2.5 : 1.0;
+                const dealtDmg = cfg.damage * dmgMultiplier;
+                targetObj.userData.hp -= dealtDmg;
+
+                if (isHead) headshotsCount++;
+
+                // Trigger Hitmarker HUD & Audio
+                triggerHitmarker(isHead);
+
+                // Spawn Spark Particles & Metallic Impact Effect
+                spawnSparks(hit.point, hit.face.normal);
+
+                // Score Addition & Feed
+                const pointsGained = Math.round((isHead ? 250 : 100) * (dealtDmg / 35));
+                score += pointsGained;
+                document.getElementById('hud-score').innerText = String(score).padStart(6, '0');
+                showActionFeed(isHead ? `HEADSHOT (+${pointsGained})` : `HIT (+${pointsGained})`, isHead ? 'text-rose-400' : 'text-cyan-400');
+
+                // Target Destruction Check
+                if (targetObj.userData.hp <= 0) {
+                    killsCount++;
+                    scene.remove(targetObj);
+                    targets = targets.filter(t => t !== targetObj);
+
+                    // Respawn target after delay
+                    setTimeout(() => {
+                        if (gameActive) {
+                            const dist = activeMode === 'range' ? -15 - Math.random() * 35 : -12 - Math.random() * 30;
+                            const posX = (Math.random() - 0.5) * 12;
+                            spawnTarget(dist, posX, Math.random() > 0.4, activeMode === 'survival');
+                        }
+                    }, 1500);
+                }
+            } else {
+                // Reset consecutive hit streak on miss
+                currentStreak = 0;
+            }
+
+            // Spawn Visual Bullet Tracer Line
+            spawnBulletTracer(raycaster.ray.direction);
+
+            // Trigger Out of Ammo Game Over if total bullets reaches 0
+            if (ammoClip === 0 && ammoReserve === 0) {
+                isGameOverPending = true;
+                setTimeout(() => {
+                    if (gameActive) {
+                        endGameMission('OUT OF AMMO');
+                    }
+                }, 450);
+            }
+        }
+
+        // Fast Glowing Bullet Tracer Line
+        function spawnBulletTracer(dir) {
+            const tracerGeo = new THREE.BufferGeometry().setFromPoints([
+                camera.position.clone().add(new THREE.Vector3(0.1, -0.1, -0.4)),
+                camera.position.clone().add(dir.clone().multiplyScalar(40))
+            ]);
+            const tracerMat = new THREE.LineBasicMaterial({ color: 0xfde047, transparent: true, opacity: 0.8 });
+            const tracerLine = new THREE.Line(tracerGeo, tracerMat);
+            scene.add(tracerLine);
+
+            tracers.push({ line: tracerLine, life: 0.08 });
+        }
+
+        /* =========================================================================
+           8. CONTROLS, POINTER LOCK & INPUT HANDLING
+           ========================================================================= */
+        function initInputListeners() {
+            const canvas = renderer.domElement;
+
+            // Desktop Mouse Look (Pointer Lock API)
+            canvas.addEventListener('click', () => {
+                if (gameActive && document.pointerLockElement !== canvas) {
+                    canvas.requestPointerLock();
+                }
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (document.pointerLockElement === canvas && gameActive) {
+                    cameraYaw -= e.movementX * mouseSensitivity;
+                    cameraPitch -= e.movementY * mouseSensitivity;
+
+                    // Clamp Vertical Pitch Angle
+                    cameraPitch = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, cameraPitch));
+
+                    playerGroup.rotation.y = cameraYaw;
+                    camera.rotation.x = cameraPitch;
+
+                    // Weapon Sway displacement on mouse movement
+                    weaponSwayX += e.movementX * 0.0003;
+                    weaponSwayY += e.movementY * 0.0003;
+                }
+            });
+
+            // Keyboard Listeners
+            window.addEventListener('keydown', (e) => {
+                keys[e.code] = true;
+
+                // Instant replay shortcuts when debrief / game over screen is open
+                const debriefVisible = !document.getElementById('debrief-overlay').classList.contains('hidden');
+                if (debriefVisible && (e.code === 'Space' || e.code === 'Enter' || e.code === 'KeyR')) {
+                    startGameMission();
+                    return;
+                }
+
+                if (!gameActive) return;
+
+                if (e.code === 'KeyR') triggerReload();
+                if (e.code === 'KeyB') toggleFireMode();
+                if (e.code === 'KeyL') toggleLaserSight();
+                if (e.code === 'Digit1') switchWeapon('rifle');
+                if (e.code === 'Digit2') switchWeapon('pistol');
+            });
+
+            window.addEventListener('keyup', (e) => {
+                keys[e.code] = false;
+            });
+
+            // Mouse Click Listeners for ADS & Shooting
+            window.addEventListener('mousedown', (e) => {
+                if (!gameActive || document.pointerLockElement !== canvas) return;
+
+                if (e.button === 0) { // Left Click (Fire)
+                    isFiring = true;
+                    fireWeapon();
+                } else if (e.button === 2) { // Right Click (ADS)
+                    setADS(true);
+                }
+            });
+
+            window.addEventListener('mouseup', (e) => {
+                if (e.button === 0) isFiring = false;
+                if (e.button === 2) setADS(false);
+            });
+
+            // Prevent Right-Click Context Menu in canvas
+            canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+            // Touch Fallbacks for Mobile / Tablet Devices
+            setupTouchControls();
+        }
+
+        function setADS(state) {
+            isADS = state;
+            const chWrapper = document.getElementById('crosshair-wrapper');
+            if (isADS) {
+                chWrapper.style.opacity = '0';
+            } else {
+                chWrapper.style.opacity = '1';
+            }
+        }
+
+        function toggleFireMode() {
+            autoFireMode = !autoFireMode;
+            document.getElementById('hud-firemode').innerText = autoFireMode ? 'AUTO' : 'SEMI';
+            soundEngine.playClick(soundEngine.ctx ? soundEngine.ctx.currentTime : 0, 900, 0.05);
+        }
+
+        function toggleLaserSight() {
+            laserEnabled = !laserEnabled;
+            if (laserLine) laserLine.visible = laserEnabled;
+        }
+
+        function switchWeapon(type) {
+            if (currentWeaponType === type || isReloading) return;
+            currentWeaponType = type;
+
+            const rifleMesh = weaponHolderGroup.getObjectByName('rifle');
+            const pistolMesh = weaponHolderGroup.getObjectByName('pistol');
+
+            if (type === 'rifle') {
+                rifleMesh.visible = true;
+                pistolMesh.visible = false;
+                currentWeaponMesh = rifleMesh;
+            } else {
+                rifleMesh.visible = false;
+                pistolMesh.visible = true;
+                currentWeaponMesh = pistolMesh;
+            }
+
+            const cfg = CONFIG[type];
+            ammoClip = cfg.clipSize;
+            ammoReserve = cfg.maxReserve;
+
+            document.getElementById('hud-weapon-name').innerText = cfg.name;
+            updateHUDAmmo();
+            soundEngine.playClick(soundEngine.ctx ? soundEngine.ctx.currentTime : 0, 1100, 0.08);
+        }
+
+        function triggerReload() {
+            const cfg = CONFIG[currentWeaponType];
+            if (isReloading || ammoClip >= cfg.clipSize || ammoReserve <= 0) return;
+
+            isReloading = true;
+            soundEngine.playReloadSound();
+            showActionFeed('RELOADING...', 'text-amber-400');
+
+            // Play Reload Animation Offset
+            weaponHolderGroup.position.y -= 0.15;
+            weaponHolderGroup.rotation.x -= 0.4;
+
+            setTimeout(() => {
+                const needed = cfg.clipSize - ammoClip;
+                const added = Math.min(needed, ammoReserve);
+                ammoClip += added;
+                ammoReserve -= added;
+                updateHUDAmmo();
+
+                // Reset Reload Weapon Position
+                weaponHolderGroup.position.copy(isADS ? cfg.adsPos : cfg.hipPos);
+                weaponHolderGroup.rotation.set(0, 0, 0);
+                isReloading = false;
+            }, 1400);
+        }
+
+        function setupTouchControls() {
+            const isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+            if (isTouchDevice) {
+                document.getElementById('touch-overlay').classList.remove('hidden');
+            }
+
+            const fireBtn = document.getElementById('btn-touch-fire');
+            const adsBtn = document.getElementById('btn-touch-ads');
+            const reloadBtn = document.getElementById('btn-touch-reload');
+
+            fireBtn.addEventListener('touchstart', (e) => { e.preventDefault(); isFiring = true; fireWeapon(); });
+            fireBtn.addEventListener('touchend', (e) => { e.preventDefault(); isFiring = false; });
+
+            adsBtn.addEventListener('touchstart', (e) => { e.preventDefault(); setADS(!isADS); });
+            reloadBtn.addEventListener('touchstart', (e) => { e.preventDefault(); triggerReload(); });
+        }
+
+        /* =========================================================================
+           9. HUD & ACTION FEED INTERFACE UPDATES
+           ========================================================================= */
+        function updateHUDAmmo() {
+            document.getElementById('hud-ammo-clip').innerText = ammoClip;
+            document.getElementById('hud-ammo-reserve').innerText = ammoReserve;
+        }
+
+        function triggerHitmarker(isHeadshot) {
+            soundEngine.playHitmarkerSound(isHeadshot);
+            const hm = document.getElementById('hitmarker');
+            hm.style.opacity = '1';
+            hm.style.transform = isHeadshot ? 'translate(-50%, -50%) scale(1.4)' : 'translate(-50%, -50%) scale(1.0)';
+            
+            const lines = hm.querySelectorAll('.hitmarker-line');
+            lines.forEach(l => l.style.backgroundColor = isHeadshot ? '#f43f5e' : '#ffffff');
+
+            setTimeout(() => {
+                hm.style.opacity = '0';
+            }, 120);
+        }
+
+        function showActionFeed(msg, textClass = 'text-cyan-400') {
+            const container = document.getElementById('feed-container');
+            const item = document.createElement('div');
+            item.className = `tactical-card px-3 py-1.5 rounded text-xs font-orbitron font-bold tracking-wider ${textClass} animate-bounce`;
+            item.innerText = msg;
+            container.appendChild(item);
+
+            setTimeout(() => {
+                item.style.opacity = '0';
+                item.style.transition = 'opacity 0.3s ease-out';
+                setTimeout(() => item.remove(), 300);
+            }, 1200);
+        }
+
+        function triggerDamageVignette() {
+            const vig = document.getElementById('damage-vignette');
+            vig.classList.add('damage-flash');
+            setTimeout(() => vig.classList.remove('damage-flash'), 400);
+        }
+
+        /* =========================================================================
+           10. MAIN GAME LOOP & ANIMATION UPDATE
+           ========================================================================= */
+        let clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const delta = clock.getDelta();
+            const time = clock.getElapsedTime();
+
+            if (gameActive) {
+                // Update Player WASD Movement
+                updatePlayerMovement(delta);
+
+                // Auto Firing Continuous Loop
+                if (isFiring && autoFireMode && currentWeaponType === 'rifle') {
+                    fireWeapon();
+                }
+
+                // Update Weapon Spring Dynamics (Recoil decay & Sway interpolation)
+                updateWeaponPhysics(delta, time);
+
+                // Update Targets Movement & Hostile AI Logic
+                updateTargets(delta);
+
+                // Update Particle Sparks & Tracers
+                updateParticlesAndTracers(delta);
+
+                // Update Match Timers
+                updateMatchTimer(delta);
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // WASD Movement & Footstep Bobbing
+        function updatePlayerMovement(delta) {
+            const moveSpeed = (keys['ShiftLeft'] || keys['ShiftRight']) ? 6.5 : 4.0;
+            const moveDir = new THREE.Vector3();
+
+            if (keys['KeyW']) moveDir.z -= 1;
+            if (keys['KeyS']) moveDir.z += 1;
+            if (keys['KeyA']) moveDir.x -= 1;
+            if (keys['KeyD']) moveDir.x += 1;
+
+            moveDir.normalize();
+            moveDir.applyAxisAngle(new THREE.Vector3(0, 1, 0), cameraYaw);
+
+            playerGroup.position.addScaledVector(moveDir, moveSpeed * delta);
+
+            // Clamp Player inside Range Bounds
+            playerGroup.position.x = Math.max(-13, Math.min(13, playerGroup.position.x));
+            playerGroup.position.z = Math.max(-2, Math.min(10, playerGroup.position.z));
+
+            // Walk Bobbing Motion
+            if (moveDir.lengthSq() > 0) {
+                walkBobTimer += delta * 12;
+                const bobY = Math.sin(walkBobTimer) * 0.02;
+                const bobX = Math.cos(walkBobTimer * 0.5) * 0.015;
+                weaponHolderGroup.position.x += bobX;
+                weaponHolderGroup.position.y += bobY;
+
+                // Dynamic Crosshair Spreading on movement
+                updateCrosshairSpread(18);
+            } else {
+                updateCrosshairSpread(0);
+            }
+        }
+
+        // Crosshair dynamic expansion styling
+        function updateCrosshairSpread(extraSpread) {
+            if (isADS) return;
+            const top = document.getElementById('ch-top');
+            const bottom = document.getElementById('ch-bottom');
+            const left = document.getElementById('ch-left');
+            const right = document.getElementById('ch-right');
+
+            const spread = 14 + extraSpread + (recoilOffsetZ * 200);
+            top.style.transform = `translate(-50%, -${spread}px)`;
+            bottom.style.transform = `translate(-50%, ${spread - 10}px)`;
+            left.style.transform = `translate(-${spread}px, -50%)`;
+            right.style.transform = `translate(${spread - 10}px, -50%)`;
+        }
+
+        // Smooth Procedural Recoil Recovery & ADS Lerp
+        function updateWeaponPhysics(delta, time) {
+            const cfg = CONFIG[currentWeaponType];
+            const targetPos = isADS ? cfg.adsPos : cfg.hipPos;
+
+            // Smoothly Lerp Position towards Target Position (ADS or Hipfire)
+            weaponHolderGroup.position.lerp(targetPos, delta * 18);
+
+            // Recoil Decay Springs
+            recoilOffsetZ = THREE.MathUtils.lerp(recoilOffsetZ, 0, delta * 20);
+            recoilRotX = THREE.MathUtils.lerp(recoilRotX, 0, delta * 20);
+            recoilRotY = THREE.MathUtils.lerp(recoilRotY, 0, delta * 20);
+
+            // Apply Recoil Offsets
+            weaponHolderGroup.position.z += recoilOffsetZ;
+            weaponHolderGroup.rotation.x = recoilRotX;
+            weaponHolderGroup.rotation.y = recoilRotY;
+
+            // Breathing Idle Sway
+            const idleSwayX = Math.sin(time * 1.5) * 0.002;
+            const idleSwayY = Math.cos(time * 2.0) * 0.002;
+            weaponHolderGroup.position.x += idleSwayX + weaponSwayX;
+            weaponHolderGroup.position.y += idleSwayY + weaponSwayY;
+
+            // Dampen mouse sway
+            weaponSwayX = THREE.MathUtils.lerp(weaponSwayX, 0, delta * 8);
+            weaponSwayY = THREE.MathUtils.lerp(weaponSwayY, 0, delta * 8);
+
+            // ADS FOV Zooming
+            const targetFOV = isADS ? 45 : 75;
+            camera.fov = THREE.MathUtils.lerp(camera.fov, targetFOV, delta * 15);
+            camera.updateProjectionMatrix();
+        }
+
+        // Target sliding animation & Hostile AI attacks
+        function updateTargets(delta) {
+            targets.forEach(t => {
+                if (t.userData.isMoving) {
+                    t.position.x += t.userData.moveSpeed * t.userData.moveDir * delta;
+                    if (t.position.x > t.userData.maxX) {
+                        t.position.x = t.userData.maxX;
+                        t.userData.moveDir = -1;
+                    } else if (t.position.x < t.userData.minX) {
+                        t.position.x = t.userData.minX;
+                        t.userData.moveDir = 1;
+                    }
+                }
+
+                // Hostile Target Fire Back Logic (Elimination Mode)
+                if (t.userData.isHostile) {
+                    t.userData.shootTimer -= delta;
+                    if (t.userData.shootTimer <= 0) {
+                        t.userData.shootTimer = 2.5 + Math.random() * 2.0;
+
+                        // Deal damage to player if player doesn't neutralize target
+                        playerHealth -= 15;
+                        document.getElementById('hud-health-num').innerText = `${playerHealth} HP`;
+                        document.getElementById('hud-health-bar').style.width = `${Math.max(0, playerHealth)}%`;
+                        triggerDamageVignette();
+                        soundEngine.playGunshot(false);
+
+                        if (playerHealth <= 0) {
+                            endGameMission();
+                        }
+                    }
+                }
+            });
+        }
+
+        // Particle Decay
+        function updateParticlesAndTracers(delta) {
+            // Update Spark Particles
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.life -= delta;
+                p.mesh.position.addScaledVector(p.vel, delta);
+                if (p.life <= 0) {
+                    scene.remove(p.mesh);
+                    particles.splice(i, 1);
+                }
+            }
+
+            // Update Bullet Tracers
+            for (let i = tracers.length - 1; i >= 0; i--) {
+                const tr = tracers[i];
+                tr.life -= delta;
+                if (tr.life <= 0) {
+                    scene.remove(tr.line);
+                    tracers.splice(i, 1);
+                }
+            }
+        }
+
+        // Timed Mission Updates
+        function updateMatchTimer(delta) {
+            matchTimer -= delta;
+            if (matchTimer <= 0) {
+                matchTimer = 0;
+                endGameMission();
+            }
+
+            const mins = Math.floor(matchTimer / 60);
+            const secs = (matchTimer % 60).toFixed(1);
+            document.getElementById('hud-timer').innerText = `${String(mins).padStart(2, '0')}:${String(secs).padStart(4, '0')}`;
+        }
+
+        /* =========================================================================
+           11. GAME STATE MANAGEMENT & MENU FLOW
+           ========================================================================= */
+        function selectMode(mode) {
+            activeMode = mode;
+            const rCard = document.getElementById('mode-card-range');
+            const sCard = document.getElementById('mode-card-survival');
+
+            if (mode === 'range') {
+                rCard.className = 'tactical-card p-4 rounded-xl cursor-pointer border-2 border-cyan-500/80 bg-cyan-950/20 hover:bg-cyan-900/30 transition-all';
+                sCard.className = 'tactical-card p-4 rounded-xl cursor-pointer border-2 border-slate-700/60 bg-slate-900/40 hover:bg-slate-800/50 transition-all';
+            } else {
+                sCard.className = 'tactical-card p-4 rounded-xl cursor-pointer border-2 border-amber-500/80 bg-amber-950/20 hover:bg-amber-900/30 transition-all';
+                rCard.className = 'tactical-card p-4 rounded-xl cursor-pointer border-2 border-slate-700/60 bg-slate-900/40 hover:bg-slate-800/50 transition-all';
+            }
+        }
+
+        function startGameMission() {
+            soundEngine.init();
+            gameActive = true;
+            isGameOverPending = false;
+            isFiring = false;
+            score = 0;
+            totalShotsFired = 0;
+            totalHits = 0;
+            headshotsCount = 0;
+            killsCount = 0;
+            currentStreak = 0;
+            bestStreak = 0;
+            matchTimer = 60.0;
+            playerHealth = 100;
+
+            // Reset ammo to full starting allocation (finite pool)
+            const cfg = CONFIG[currentWeaponType];
+            ammoClip = cfg.clipSize;
+            ammoReserve = cfg.maxReserve;
+            updateHUDAmmo();
+
+            // Set Mode HUD Details
+            if (activeMode === 'range') {
+                document.getElementById('hud-mode-name').innerText = 'PRECISION DRILL';
+                document.getElementById('hud-objective').innerText = 'MAXIMIZE ACCURACY (FINITE AMMO)';
+                document.getElementById('hud-health-container').classList.add('hidden');
+            } else {
+                document.getElementById('hud-mode-name').innerText = 'CQB ELIMINATION';
+                document.getElementById('hud-objective').innerText = 'SURVIVE HOSTILE WAVES (FINITE AMMO)';
+                document.getElementById('hud-health-container').classList.remove('hidden');
+            }
+
+            document.getElementById('hud-score').innerText = '000000';
+            document.getElementById('hud-health-num').innerText = '100 HP';
+            document.getElementById('hud-health-bar').style.width = '100%';
+
+            // Hide Menu, Show HUD
+            document.getElementById('menu-overlay').classList.add('hidden');
+            document.getElementById('debrief-overlay').classList.add('hidden');
+            document.getElementById('hud-layer').classList.remove('hidden');
+
+            // Populate Scenario Targets
+            populateRangeTargets();
+
+            // Request Pointer Lock on Canvas
+            renderer.domElement.requestPointerLock();
+        }
+
+        function endGameMission(reason = 'TIME EXPIRED') {
+            gameActive = false;
+            isGameOverPending = false;
+            isFiring = false;
+            if (document.exitPointerLock) document.exitPointerLock();
+
+            const subtitleEl = document.getElementById('debrief-subtitle');
+            const titleEl = document.getElementById('debrief-title');
+
+            if (reason === 'OUT OF AMMO') {
+                subtitleEl.innerText = 'OUT OF AMMO';
+                subtitleEl.className = 'text-xs font-orbitron font-bold text-rose-500 tracking-widest uppercase animate-pulse';
+                titleEl.innerText = 'OUT OF AMMO - MISSION ENDED';
+                soundEngine.playOutOfAmmoAlert();
+            } else if (reason === 'KILLED') {
+                subtitleEl.innerText = 'OPERATOR ELIMINATED';
+                subtitleEl.className = 'text-xs font-orbitron font-bold text-red-500 tracking-widest uppercase';
+                titleEl.innerText = 'TACTICAL FAILURE';
+                soundEngine.playOutOfAmmoAlert();
+            } else {
+                subtitleEl.innerText = 'MISSION COMPLETE';
+                subtitleEl.className = 'text-xs font-orbitron font-bold text-amber-400 tracking-widest uppercase';
+                titleEl.innerText = 'TACTICAL PERFORMANCE DEBRIEF';
+            }
+
+            // Calculate Performance Metrics
+            const accuracy = totalShotsFired > 0 ? Math.round((totalHits / totalShotsFired) * 100) : 0;
+
+            let rank = 'D';
+            if (score > 8000 && accuracy > 85) rank = 'S+';
+            else if (score > 6000 && accuracy > 70) rank = 'A';
+            else if (score > 4000) rank = 'B';
+            else if (score > 2000) rank = 'C';
+
+            // Populate Debrief Screen
+            document.getElementById('debrief-score').innerText = score;
+            document.getElementById('debrief-accuracy').innerText = `${accuracy}%`;
+            document.getElementById('debrief-headshots').innerText = headshotsCount;
+            document.getElementById('debrief-streak').innerText = bestStreak;
+            document.getElementById('debrief-rank').innerText = rank;
+            document.getElementById('debrief-shots').innerText = totalShotsFired;
+            document.getElementById('debrief-hits').innerText = totalHits;
+            document.getElementById('debrief-kills').innerText = killsCount;
+
+            // Show Debrief Modal
+            document.getElementById('debrief-overlay').classList.remove('hidden');
+            document.getElementById('hud-layer').classList.add('hidden');
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        /* =========================================================================
+           12. INITIALIZATION ON WINDOW LOAD
+           ========================================================================= */
+        window.onload = function () {
+            // Build Three.js Engine Scene
+            initThreeScene();
+
+            // Setup Controls & Handlers
+            initInputListeners();
+
+            // Settings Sliders Listeners
+            const sensSlider = document.getElementById('sens-slider');
+            sensSlider.addEventListener('input', (e) => {
+                mouseSensitivity = parseFloat(e.target.value) * 0.0015;
+                document.getElementById('sens-val').innerText = e.target.value;
+            });
+
+            const volSlider = document.getElementById('vol-slider');
+            volSlider.addEventListener('input', (e) => {
+                const vol = parseInt(e.target.value) / 100;
+                soundEngine.setVolume(vol);
+                document.getElementById('vol-val').innerText = `${e.target.value}%`;
+            });
+
+            // Start & Restart Buttons
+            document.getElementById('btn-start-game').addEventListener('click', startGameMission);
+            document.getElementById('btn-restart-game').addEventListener('click', startGameMission);
+            document.getElementById('btn-menu-game').addEventListener('click', () => {
+                document.getElementById('debrief-overlay').classList.add('hidden');
+                document.getElementById('menu-overlay').classList.remove('hidden');
+            });
+
+            // Start Main Animation Engine Render Loop
+            animate();
+        };
+    </script>
+</body>
+</html>
